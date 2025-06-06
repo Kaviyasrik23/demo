@@ -1,0 +1,185 @@
+REPORT zbank_management_project.
+
+TABLES: zbankm.
+
+TYPES: BEGIN OF ty_bank,
+        cphone_no TYPE zbankm-cphone_no,
+        first_name TYPE zbankm-first_name,
+        last_name TYPE zbankm-last_name,
+        location TYPE zbankm-location,
+        balance TYPE zbankm-balance,
+        currency TYPE zbankm-currency,
+      END OF ty_bank.
+
+DATA: It_bank TYPE TABLE OF zbankm,
+      wa_bank TYPE zbankm,
+      lv_phone TYPE zbankm-cphone_no.
+
+SELECTION-SCREEN BEGIN OF BLOCK B1 WITH FRAME TITLE text-001.
+  SELECTION-SCREEN END OF Block b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+  PARAMETERS: create RADIOBUTTON GROUP grp,
+              deposit RADIOBUTTON GROUP grp,
+              withdraw RADIOBUTTON GROUP grp,
+              details RADIOBUTTON GROUP grp.
+
+  SELECTION-SCREEN END OF BLOCK b2.
+
+  SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE text-003.
+    PARAMETERS: p_phone TYPE zbankm-cphone_no MODIF ID ac,
+                p_fname Type zbankm-first_name MODIF ID ac,
+                p_lname TYPE zbankm-last_name MODIF ID ac,
+                p_loc TYPE zbankm-location MODIF ID ac,
+                p_bal TYPE zbankm-balance MODIF ID ac,
+                p_curr TYPE zbankm-currency MODIF ID ac.
+
+  SELECTION-SCREEN END OF BLOCK b3.
+
+  SELECTION-SCREEN BEGIN OF BLOCK b4 with FRAME TITLE text-004.
+    PARAMETERS: p_dp_ph TYPE zbankm-cphone_no MODIF ID dp,
+                p_dp_amt TYPE zbankm-balance MODIF ID dp.
+
+  SELECTION-SCREEN END OF BLOCK b4.
+
+  SELECTION-SCREEN BEGIN OF BLOCK b5 WITH FRAME TITLE text-005.
+    PARAMETERS: p_wd_ph TYPE zbankm-cphone_no MODIF ID wd,
+                p_wd_amt TYPE zbankm-balance MODIF ID wd.
+
+  SELECTION-SCREEN END OF BLOCK B5.
+
+  SELECTION-SCREEN BEGIN OF BLOCK B6 WITH FRAME TITLE TEXT-006.
+    PARAMETERS: p_dt_ph TYPE zbankm-cphone_no MODIF ID dt.
+
+  SELECTION-SCREEN END OF BLOCK b6.
+
+  At SELECTION-SCREEN OUTPUT.
+    PERFORM modify_screen.
+
+  AT SELECTION-SCREEN ON p_phone.
+  IF create <> 'X'.  " Skip validation for CREATE mode
+    PERFORM validate_phone USING p_phone CHANGING lv_phone.
+  ENDIF.
+
+AT SELECTION-SCREEN ON p_dp_ph.
+  PERFORM validate_phone USING p_dp_ph CHANGING lv_phone.
+
+AT SELECTION-SCREEN ON p_wd_ph.
+  PERFORM validate_phone USING p_wd_ph CHANGING lv_phone.
+
+AT SELECTION-SCREEN ON p_dt_ph.
+  PERFORM validate_phone USING p_dt_ph CHANGING lv_phone.
+
+
+  START-OF-SELECTION.
+  IF create = 'X'.
+    MESSAGE 'Create selected' TYPE 'I'.
+    PERFORM create_account.
+  ELSEIF deposit = 'X'.
+    MESSAGE 'Deposit selected' TYPE 'I'.
+    PERFORM deposit_money.
+  ELSEIF withdraw = 'X'.
+    MESSAGE 'Withdraw selected' TYPE 'I'.
+    PERFORM withdraw_money.
+  ELSEIF details = 'X'.
+    MESSAGE 'Details selected' TYPE 'I'.
+    PERFORM account_details.
+  ELSE.
+    MESSAGE 'No option selected' TYPE 'I'.
+  ENDIF.
+
+
+    Form modify_screen.
+      LOOP AT SCREEN.
+        CASE screen-group1.
+        WHEN 'AC'.
+          screen-active = COND #( WHEN create = 'X' THEN 1 ELSE 0 ).
+        WHEN 'DP'.
+          screen-active = COND #( WHEN deposit = 'X' THEN 1 ELSE 0 ).
+        WHEN 'WD'.
+          screen-active = COND #( WHEN withdraw = 'X' THEN 1 ELSE 0 ).
+        WHEN 'DT'.
+          screen-active = COND #( WHEN details = 'X' THEN 1 ELSE 0 ).
+        WHEN OTHERS.
+          screen-active = 0.
+        ENDCASE.
+       ENDLOOP.
+      ENDFORM.
+
+  FORM validate_phone USING uv_phone TYPE zbankm-cphone_no
+                    CHANGING cv_phone TYPE zbankm-cphone_no.
+  IF uv_phone IS NOT INITIAL.
+    SELECT SINGLE cphone_no INTO cv_phone FROM zbankm
+      WHERE cphone_no = uv_phone.
+    IF sy-subrc <> 0.
+      MESSAGE 'Account not found.' TYPE 'E'.
+    ENDIF.
+  ENDIF.
+ENDFORM.
+FORM create_account.
+  CLEAR wa_bank.
+
+  " Check if phone number already exists
+  SELECT SINGLE cphone_no FROM zbankm INTO @DATA(lv_exists)
+    WHERE cphone_no = @p_phone.
+
+  IF sy-subrc = 0.
+    MESSAGE 'Phone number already exists. Try another.' TYPE 'E'.
+    EXIT.
+  ENDIF.
+
+  wa_bank-cphone_no = p_phone.
+  wa_bank-first_name = p_fname.
+  wa_bank-last_name = p_lname.
+  wa_bank-location   = p_loc.
+  wa_bank-balance    = p_bal.
+  wa_bank-currency   = p_curr.
+
+  INSERT zbankm FROM wa_bank.
+  IF sy-subrc = 0.
+    COMMIT WORK AND WAIT.
+    MESSAGE 'Account created successfully.' TYPE 'S'.
+  ELSE.
+    MESSAGE 'Account creation failed.' TYPE 'E'.
+  ENDIF.
+ENDFORM.
+
+
+FORM deposit_money.
+  SELECT SINGLE * FROM zbankm INTO wa_bank WHERE cphone_no = p_dp_ph.
+  IF sy-subrc = 0.
+    wa_bank-balance = wa_bank-balance + p_dp_amt.
+    UPDATE zbankm FROM wa_bank.
+    MESSAGE 'Amount deposited successfully.' TYPE 'S'.
+  ELSE.
+    MESSAGE 'Account not found.' TYPE 'E'.
+  ENDIF.
+ENDFORM.
+
+FORM withdraw_money.
+  SELECT SINGLE * INTO wa_bank FROM zbankm WHERE cphone_no = p_wd_ph.
+  IF sy-subrc = 0.
+    IF wa_bank-balance >= p_wd_amt.
+      wa_bank-balance = wa_bank-balance - p_wd_amt.
+      UPDATE zbankm FROM wa_bank.
+      MESSAGE 'Amount withdrawn successfully.' TYPE 'S'.
+    ELSE.
+      MESSAGE 'Insufficient balance.' TYPE 'E'.
+    ENDIF.
+  ELSE.
+    MESSAGE 'Account not found.' TYPE 'E'.
+  ENDIF.
+ENDFORM.
+
+FORM account_details.
+  SELECT SINGLE * From zbankm INTO wa_bank WHERE cphone_no = p_dt_ph.
+  IF sy-subrc = 0.
+    WRITE: / 'Phone     :', wa_bank-cphone_no,
+           / 'Name      :', wa_bank-first_name, wa_bank-last_name,
+           / 'Location  :', wa_bank-location,
+           / 'Balance   :', wa_bank-balance,
+           / 'Currency  :', wa_bank-currency.
+  ELSE.
+    MESSAGE 'Account not found.' TYPE 'E'.
+  ENDIF.
+ENDFORM.
